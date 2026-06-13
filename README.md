@@ -50,3 +50,31 @@ docker-compose up --build
 ## API Documentation
 
 Once running, visit:
+
+```
+http://localhost:8080/swagger-ui.html
+```
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SPRING_DATASOURCE_URL` | PostgreSQL connection URL |
+| `SPRING_DATASOURCE_USERNAME` | Database username |
+| `SPRING_DATASOURCE_PASSWORD` | Database password |
+| `APP_JWT_SECRET` | JWT signing secret |
+| `APP_JWT_EXPIRATION` | Token expiry in milliseconds |
+
+## Project Structure
+
+```
+src/main/java/com/pentastack/skillsync/
+├── auth/
+├── mentor/
+├── student/
+├── stack/
+├── session/
+└── shared/
+    ├── security/
+    └── exception/
+```
