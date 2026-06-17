@@ -16,6 +16,7 @@ public class UserResponse {
     private String email;
     private Role role;
     private String avatar;
+    private Long profileId;
     private LocalDateTime createdAt;
 
     /**
@@ -26,11 +27,13 @@ public class UserResponse {
             return null;
         }
 
-        String resolvedName = "";
+        Long resolvedProfileId = null;
         if (user.getRole() == Role.STUDENT && user.getStudentProfile() != null) {
             resolvedName = user.getStudentProfile().getName();
+            resolvedProfileId = user.getStudentProfile().getId();
         } else if (user.getRole() == Role.MENTOR && user.getMentorProfile() != null) {
             resolvedName = user.getMentorProfile().getName();
+            resolvedProfileId = user.getMentorProfile().getId();
         } else {
             resolvedName = "Admin User";
         }
@@ -40,6 +43,7 @@ public class UserResponse {
                 .name(resolvedName)
                 .email(user.getEmail())
                 .role(user.getRole())
+                .profileId(resolvedProfileId)
                 .createdAt(user.getCreatedAt())
                 .build();
     }

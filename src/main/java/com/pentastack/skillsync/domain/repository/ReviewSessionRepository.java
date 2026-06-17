@@ -26,4 +26,6 @@ public interface ReviewSessionRepository extends JpaRepository<ReviewSession, Lo
         LocalDateTime endTime,
         LocalDateTime startTime
     );
+
+    long countByMentor_Id(Long mentorId);
 }
