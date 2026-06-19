@@ -1,7 +1,10 @@
 package com.pentastack.skillsync.sessions;
 
-public class SessionAccessDeniedException extends RuntimeException {
+import com.pentastack.skillsync.exception.ApiException;
+import org.springframework.http.HttpStatus;
+
+public class SessionAccessDeniedException extends ApiException {
     public SessionAccessDeniedException(String message) {
-        super(message);
+        super(HttpStatus.FORBIDDEN, message);
     }
 }

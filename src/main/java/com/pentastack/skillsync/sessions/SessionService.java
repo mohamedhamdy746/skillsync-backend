@@ -1,5 +1,14 @@
 package com.pentastack.skillsync.sessions;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.pentastack.skillsync.availability.AvailabilityService;
 import com.pentastack.skillsync.domain.AuditStatus;
 import com.pentastack.skillsync.domain.MentorProfile;
 import com.pentastack.skillsync.domain.ReviewSession;
@@ -12,14 +21,11 @@ import com.pentastack.skillsync.domain.repository.ReviewSessionRepository;
 import com.pentastack.skillsync.domain.repository.SessionAuditLogRepository;
 import com.pentastack.skillsync.domain.repository.StudentProfileRepository;
 import com.pentastack.skillsync.domain.repository.UserRepository;
+import com.pentastack.skillsync.exception.ApiException;
 import com.pentastack.skillsync.sessions.dto.CreateSessionRequest;
 import com.pentastack.skillsync.sessions.dto.SessionAuditLogResponse;
 import com.pentastack.skillsync.sessions.dto.SessionResponse;
 import com.pentastack.skillsync.sessions.dto.UpdateSessionRequest;
-import java.time.LocalDateTime;
-import java.util.List;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SessionService {
@@ -29,6 +35,7 @@ public class SessionService {
     private final StudentProfileRepository studentProfileRepository;
     private final UserRepository userRepository;
     private final SessionAuditClassifier classifier;
+    private final AvailabilityService availabilityService;
 
     public SessionService(
         ReviewSessionRepository reviewSessionRepository,
@@ -36,7 +43,8 @@ public class SessionService {
         MentorProfileRepository mentorProfileRepository,
         StudentProfileRepository studentProfileRepository,
         UserRepository userRepository,
-        SessionAuditClassifier classifier
+        SessionAuditClassifier classifier,
+        AvailabilityService availabilityService
     ) {
         this.reviewSessionRepository = reviewSessionRepository;
         this.sessionAuditLogRepository = sessionAuditLogRepository;
@@ -44,6 +52,7 @@ public class SessionService {
         this.studentProfileRepository = studentProfileRepository;
         this.userRepository = userRepository;
         this.classifier = classifier;
+        this.availabilityService = availabilityService;
     }
 
     @Transactional
@@ -59,8 +68,15 @@ public class SessionService {
         )) {
             throw new SessionConflictException("Mentor is already booked for that time window");
         }
+        requireAvailableSlot(mentor.getId(), request.startTime());
 
-        ReviewSession session = reviewSessionRepository.save(new ReviewSession(mentor, student, request.startTime(), request.description()));
+        ReviewSession session;
+        try {
+            session = reviewSessionRepository.saveAndFlush(
+                new ReviewSession(mentor, student, request.startTime(), request.description()));
+        } catch (DataIntegrityViolationException ex) {
+            throw new SessionConflictException("Mentor is already booked for that time window");
+        }
         AuditClassificationResult classification = classifier.classify(request.description());
         SessionAuditLog auditLog = new SessionAuditLog(
             session,
@@ -120,6 +136,7 @@ public class SessionService {
             if (overlap) {
                 throw new SessionConflictException("Mentor is already booked for that time window");
             }
+            requireAvailableSlot(session.getMentor().getId(), request.startTime());
             session.reschedule(request.startTime());
         }
         if (request.description() != null) {
@@ -130,8 +147,21 @@ public class SessionService {
         } else if (request.status() == SessionStatus.COMPLETED) {
             session.complete(request.evaluationNotes());
         }
-        reviewSessionRepository.save(session);
+        try {
+            reviewSessionRepository.saveAndFlush(session);
+        } catch (DataIntegrityViolationException ex) {
+            throw new SessionConflictException("Mentor is already booked for that time window");
+        }
         return toResponse(session);
+    }
+
+    private void requireAvailableSlot(Long mentorId, LocalDateTime startTime) {
+        boolean available = availabilityService.availableSlots(mentorId, startTime.toLocalDate())
+            .availableSlots().stream()
+            .anyMatch(slot -> slot.startTime().equals(startTime));
+        if (!available) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Requested time is not an available slot");
+        }
     }
 
     private void authorize(String requesterEmail, ReviewSession session) {

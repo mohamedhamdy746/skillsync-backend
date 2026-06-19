@@ -1,7 +1,10 @@
 package com.pentastack.skillsync.sessions;
 
-public class SessionNotFoundException extends RuntimeException {
+import com.pentastack.skillsync.exception.ApiException;
+import org.springframework.http.HttpStatus;
+
+public class SessionNotFoundException extends ApiException {
     public SessionNotFoundException(String message) {
-        super(message);
+        super(HttpStatus.NOT_FOUND, message);
     }
 }
