@@ -18,6 +18,7 @@ public class UserPrincipal implements UserDetails {
     private Long id;
     private String email;
     private String password;
+    private boolean blocked;
     private Collection<? extends GrantedAuthority> authorities;
 
     public static UserPrincipal create(User user) {
@@ -26,6 +27,7 @@ public class UserPrincipal implements UserDetails {
                 .id(user.getId())
                 .email(user.getEmail())
                 .password(user.getPasswordHash())
+                .blocked(user.isBlocked())
                 .authorities(Collections.singletonList(authority))
                 .build();
     }
@@ -52,7 +54,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
-        return true;
+        return !blocked;
     }
 
     @Override

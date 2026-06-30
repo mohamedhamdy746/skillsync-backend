@@ -76,6 +76,7 @@ public class ReviewSession {
         this.status = SessionStatus.COMPLETED;
         this.evaluationNotes = notes;
     }
+    public void updateEvaluationNotes(String notes) { this.evaluationNotes = notes; }
     public void reschedule(LocalDateTime startTime) {
         this.startTime = startTime;
         this.endTime = startTime.plusMinutes(45);

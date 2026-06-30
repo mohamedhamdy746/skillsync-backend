@@ -14,10 +14,10 @@ import java.util.Optional;
 @Repository("modelMentorProfileRepository")
 public interface MentorProfileRepository extends JpaRepository<MentorProfile, Long>, JpaSpecificationExecutor<MentorProfile> {
 
-    @EntityGraph(attributePaths = {"user"})
-    Page<MentorProfile> findByIsVerified(boolean isVerified, Pageable pageable);
+    @EntityGraph(attributePaths = {"user", "stack"})
+    Page<MentorProfile> findByIsVerifiedAndUser_Blocked(boolean isVerified, boolean blocked, Pageable pageable);
 
-    long countByIsVerified(boolean isVerified);
+    long countByIsVerifiedAndUser_Blocked(boolean isVerified, boolean blocked);
 
     @EntityGraph(attributePaths = {"user", "stack"})
     Optional<MentorProfile> findWithUserById(Long id);
@@ -36,4 +36,3 @@ public interface MentorProfileRepository extends JpaRepository<MentorProfile, Lo
     @Query("SELECT AVG(m.averageRating) FROM MentorProfile m WHERE m.available = :available")
     Optional<Double> findAverageRatingByAvailable(@Param("available") boolean available);
 }
-

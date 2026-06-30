@@ -7,6 +7,7 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ReviewSessionRepository extends JpaRepository<ReviewSession, Long> {
     @EntityGraph(attributePaths = {"mentor", "mentor.user", "mentor.stack", "student", "student.user", "auditLog"})
@@ -26,6 +27,22 @@ public interface ReviewSessionRepository extends JpaRepository<ReviewSession, Lo
         com.pentastack.skillsync.domain.SessionStatus status,
         LocalDateTime endTime,
         LocalDateTime startTime
+    );
+
+    @Query("""
+        SELECT COUNT(s) FROM ReviewSession s
+        WHERE s.mentor.id = :mentorId
+          AND s.status = :status
+          AND s.id <> :excludedSessionId
+          AND s.startTime < :endTime
+          AND s.endTime > :startTime
+        """)
+    long countOverlappingSessionsExcludingId(
+        @Param("mentorId") Long mentorId,
+        @Param("status") com.pentastack.skillsync.domain.SessionStatus status,
+        @Param("endTime") LocalDateTime endTime,
+        @Param("startTime") LocalDateTime startTime,
+        @Param("excludedSessionId") Long excludedSessionId
     );
 
     long countByMentor_Id(Long mentorId);

@@ -2,13 +2,16 @@ package com.pentastack.skillsync.mentor;
 
 import com.pentastack.skillsync.common.dto.PagedResponse;
 import com.pentastack.skillsync.model.MentorProfile;
+import com.pentastack.skillsync.model.Role;
 import com.pentastack.skillsync.domain.Stack;
 import com.pentastack.skillsync.model.repository.MentorProfileRepository;
+import com.pentastack.skillsync.model.repository.UserRepository;
 import com.pentastack.skillsync.domain.repository.ReviewSessionRepository;
 import com.pentastack.skillsync.exception.ApiException;
 import com.pentastack.skillsync.mentor.dto.MentorDetailResponse;
 import com.pentastack.skillsync.mentor.dto.MentorListItemResponse;
 import com.pentastack.skillsync.mentor.dto.MentorProfileUpdateRequest;
+import com.pentastack.skillsync.model.User;
 import com.pentastack.skillsync.stack.dto.StackResponse;
 import java.util.Arrays;
 import java.util.Collections;
@@ -27,13 +30,16 @@ public class MentorService {
 
     private final MentorProfileRepository mentorProfileRepository;
     private final ReviewSessionRepository reviewSessionRepository;
+    private final UserRepository userRepository;
 
     public MentorService(
         MentorProfileRepository mentorProfileRepository,
-        ReviewSessionRepository reviewSessionRepository
+        ReviewSessionRepository reviewSessionRepository,
+        UserRepository userRepository
     ) {
         this.mentorProfileRepository = mentorProfileRepository;
         this.reviewSessionRepository = reviewSessionRepository;
+        this.userRepository = userRepository;
     }
 
     @Transactional(readOnly = true)
@@ -73,9 +79,17 @@ public class MentorService {
     }
 
     @Transactional
-    public MentorDetailResponse updateMentorProfile(Long id, MentorProfileUpdateRequest request) {
+    public MentorDetailResponse updateMentorProfile(Long id, MentorProfileUpdateRequest request, String requesterEmail) {
         MentorProfile mentor = mentorProfileRepository.findWithUserById(id)
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Mentor not found"));
+        User requester = userRepository.findByEmail(requesterEmail)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found"));
+
+        boolean ownsProfile = mentor.getUser().getId().equals(requester.getId());
+        boolean isAdmin = requester.getRole() == Role.ADMIN;
+        if (!ownsProfile && !isAdmin) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "You do not have permission to update this mentor profile");
+        }
         
         mentor.updateProfile(
             request.title(),

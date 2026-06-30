@@ -3,6 +3,8 @@ package com.pentastack.skillsync.mentor;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -138,6 +140,21 @@ class MentorControllerIntegrationTest {
         mockMvc.perform(get("/api/mentors/{id}", 99999L))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.message").value("Mentor not found"));
+    }
+
+    @Test
+    void nonOwnerMentorCannotUpdateAnotherMentorProfile() throws Exception {
+        mockMvc.perform(put("/api/mentors/{id}", javaMentor.getId())
+                .with(user("react.mentor@skillsync.dev").roles("MENTOR"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of(
+                    "title", "Unauthorized title",
+                    "bio", "Should not be written",
+                    "hourlyRate", 99,
+                    "available", true
+                ))))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.message").value("You do not have permission to update this mentor profile"));
     }
 
     @Test

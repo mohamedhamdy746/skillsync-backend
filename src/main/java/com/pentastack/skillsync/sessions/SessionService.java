@@ -7,14 +7,13 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.pentastack.skillsync.availability.AvailabilityService;
 import com.pentastack.skillsync.domain.AuditStatus;
 import com.pentastack.skillsync.model.MentorProfile;
+import com.pentastack.skillsync.model.Role;
 import com.pentastack.skillsync.domain.ReviewSession;
 import com.pentastack.skillsync.domain.SessionAuditLog;
 import com.pentastack.skillsync.domain.SessionStatus;
@@ -41,8 +40,8 @@ public class SessionService {
     private final StudentProfileRepository studentProfileRepository;
     private final UserRepository userRepository;
     private final SessionAuditClassifier classifier;
+    private final SessionAuditLogWriter sessionAuditLogWriter;
     private final AvailabilityService availabilityService;
-    private final TransactionTemplate transactionTemplate;
 
     public SessionService(
         ReviewSessionRepository reviewSessionRepository,
@@ -51,8 +50,8 @@ public class SessionService {
         StudentProfileRepository studentProfileRepository,
         UserRepository userRepository,
         SessionAuditClassifier classifier,
-        AvailabilityService availabilityService,
-        PlatformTransactionManager transactionManager
+        SessionAuditLogWriter sessionAuditLogWriter,
+        AvailabilityService availabilityService
     ) {
         this.reviewSessionRepository = reviewSessionRepository;
         this.sessionAuditLogRepository = sessionAuditLogRepository;
@@ -60,32 +59,32 @@ public class SessionService {
         this.studentProfileRepository = studentProfileRepository;
         this.userRepository = userRepository;
         this.classifier = classifier;
+        this.sessionAuditLogWriter = sessionAuditLogWriter;
         this.availabilityService = availabilityService;
-        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
+    @Transactional
     public SessionResponse createSession(String studentEmail, CreateSessionRequest request) {
-        ReviewSession session = transactionTemplate.execute(status -> {
-            StudentProfile student = studentProfileRepository.findByUser_Email(studentEmail)
-                .orElseThrow(() -> new SessionNotFoundException("Student profile not found"));
-            MentorProfile mentor = mentorProfileRepository.findWithUserById(request.mentorId())
-                .orElseThrow(() -> new SessionNotFoundException("Mentor profile not found"));
+        StudentProfile student = studentProfileRepository.findByUser_Email(studentEmail)
+            .orElseThrow(() -> new SessionNotFoundException("Student profile not found"));
+        MentorProfile mentor = mentorProfileRepository.findWithUserById(request.mentorId())
+            .orElseThrow(() -> new SessionNotFoundException("Mentor profile not found"));
 
-            LocalDateTime endTime = request.startTime().plusMinutes(45);
-            if (reviewSessionRepository.existsByMentor_IdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                mentor.getId(), SessionStatus.SCHEDULED, endTime, request.startTime()
-            )) {
-                throw new SessionConflictException("Mentor is already booked for that time window");
-            }
-            requireAvailableSlot(mentor.getId(), request.startTime());
+        LocalDateTime endTime = request.startTime().plusMinutes(45);
+        if (reviewSessionRepository.existsByMentor_IdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
+            mentor.getId(), SessionStatus.SCHEDULED, endTime, request.startTime()
+        )) {
+            throw new SessionConflictException("Mentor is already booked for that time window");
+        }
+        requireAvailableSlot(mentor.getId(), request.startTime());
 
-            try {
-                return reviewSessionRepository.saveAndFlush(
-                    new ReviewSession(mentor, student, request.startTime(), request.description()));
-            } catch (DataIntegrityViolationException ex) {
-                throw new SessionConflictException("Mentor is already booked for that time window");
-            }
-        });
+        ReviewSession session;
+        try {
+            session = reviewSessionRepository.saveAndFlush(
+                new ReviewSession(mentor, student, request.startTime(), request.description()));
+        } catch (DataIntegrityViolationException ex) {
+            throw new SessionConflictException("Mentor is already booked for that time window");
+        }
 
         long startTime = System.currentTimeMillis();
         AuditClassificationResult classification = null;
@@ -122,16 +121,9 @@ public class SessionService {
             );
         }
 
-        final SessionAuditLog finalAuditLog = auditLog;
-        try {
-            transactionTemplate.executeWithoutResult(status -> {
-                sessionAuditLogRepository.save(finalAuditLog);
-            });
-        } catch (Throwable dbEx) {
-            log.error("Failed to save session audit log: {}", dbEx.getMessage(), dbEx);
-        }
+        SessionAuditLog savedAuditLog = sessionAuditLogWriter.saveAndFlush(auditLog);
 
-        return toResponse(session, finalAuditLog);
+        return toResponse(session, savedAuditLog);
     }
 
     @Transactional(readOnly = true)
@@ -167,16 +159,27 @@ public class SessionService {
     public SessionResponse updateSession(String requesterEmail, Long sessionId, UpdateSessionRequest request) {
         ReviewSession session = reviewSessionRepository.findWithDetailsById(sessionId)
             .orElseThrow(() -> new SessionNotFoundException("Session not found"));
-        authorize(requesterEmail, session);
-        if (session.getStatus() != SessionStatus.SCHEDULED) {
+        User requester = authorize(requesterEmail, session);
+        boolean noteUpdate = request.evaluationNotes() != null;
+        boolean completion = request.status() == SessionStatus.COMPLETED;
+
+        if (noteUpdate || completion) {
+            requireMentorOrAdmin(requesterEmail, requester, session);
+        }
+
+        boolean schedulingUpdate = request.startTime() != null
+            || request.description() != null
+            || request.status() == SessionStatus.CANCELED
+            || completion;
+        if (schedulingUpdate && session.getStatus() != SessionStatus.SCHEDULED) {
             throw new SessionConflictException("Only scheduled sessions can be updated");
         }
 
-        if (request.startTime() != null) {
+        if (request.startTime() != null && !request.startTime().equals(session.getStartTime())) {
             LocalDateTime endTime = request.startTime().plusMinutes(45);
-            boolean overlap = reviewSessionRepository.existsByMentor_IdAndStatusAndStartTimeLessThanAndEndTimeGreaterThan(
-                session.getMentor().getId(), SessionStatus.SCHEDULED, endTime, request.startTime()
-            );
+            boolean overlap = reviewSessionRepository.countOverlappingSessionsExcludingId(
+                session.getMentor().getId(), SessionStatus.SCHEDULED, endTime, request.startTime(), session.getId()
+            ) > 0;
             if (overlap) {
                 throw new SessionConflictException("Mentor is already booked for that time window");
             }
@@ -190,6 +193,8 @@ public class SessionService {
             session.cancel();
         } else if (request.status() == SessionStatus.COMPLETED) {
             session.complete(request.evaluationNotes());
+        } else if (noteUpdate) {
+            session.updateEvaluationNotes(request.evaluationNotes());
         }
         try {
             reviewSessionRepository.saveAndFlush(session);
@@ -208,14 +213,23 @@ public class SessionService {
         }
     }
 
-    private void authorize(String requesterEmail, ReviewSession session) {
+    private User authorize(String requesterEmail, ReviewSession session) {
         User requester = userRepository.findByEmail(requesterEmail)
             .orElseThrow(() -> new SessionNotFoundException("User not found"));
         boolean owns = session.getStudent().getUser().getEmail().equals(requesterEmail)
             || session.getMentor().getUser().getEmail().equals(requesterEmail)
-            || requester.getRole() == com.pentastack.skillsync.model.Role.ADMIN;
+            || requester.getRole() == Role.ADMIN;
         if (!owns) {
             throw new SessionAccessDeniedException("You do not have access to this session");
+        }
+        return requester;
+    }
+
+    private void requireMentorOrAdmin(String requesterEmail, User requester, ReviewSession session) {
+        boolean canEvaluate = session.getMentor().getUser().getEmail().equals(requesterEmail)
+            || requester.getRole() == Role.ADMIN;
+        if (!canEvaluate) {
+            throw new SessionAccessDeniedException("Only the mentor or an admin can add evaluation notes");
         }
     }
 

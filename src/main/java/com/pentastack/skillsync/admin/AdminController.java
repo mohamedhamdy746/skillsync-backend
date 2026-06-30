@@ -5,7 +5,9 @@ import com.pentastack.skillsync.common.dto.PagedResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.Map;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -23,6 +25,25 @@ public class AdminController {
 
     public AdminController(AdminMentorService adminMentorService) {
         this.adminMentorService = adminMentorService;
+    }
+
+    @GetMapping("/users")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "List all platform users",
+               description = "Returns all model users with account block status and role-specific verification flags")
+    public ResponseEntity<List<AdminUserResponse>> getUsers() {
+        return ResponseEntity.ok(adminMentorService.getUsers());
+    }
+
+    @PutMapping("/users/{id}/status")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Approve or block a platform user",
+               description = "Updates the model User account block flag from a status, active, or isBlocked payload")
+    public ResponseEntity<AdminUserResponse> updateUserStatus(
+        @PathVariable Long id,
+        @RequestBody AdminUserStatusRequest request
+    ) {
+        return ResponseEntity.ok(adminMentorService.updateUserStatus(id, request));
     }
 
     @GetMapping("/mentors/pending/registrations")

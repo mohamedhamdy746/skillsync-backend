@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.pentastack.skillsync.mentor.dto.MentorProfileUpdateRequest;
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/mentors")
@@ -39,7 +40,7 @@ public class MentorController {
     }
 
     @PutMapping("/{id}")
-    public MentorDetailResponse update(@PathVariable Long id, @RequestBody MentorProfileUpdateRequest request) {
-        return mentorService.updateMentorProfile(id, request);
+    public MentorDetailResponse update(@PathVariable Long id, @RequestBody MentorProfileUpdateRequest request, Principal principal) {
+        return mentorService.updateMentorProfile(id, request, principal.getName());
     }
 }
